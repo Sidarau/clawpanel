@@ -69,8 +69,8 @@ function isPrivateHost(host: string): boolean {
   )
 }
 
-const PUBLIC_PATHS = ['/', '/api/webhook', '/api/health', '/_next', '/static', '/favicon.ico']
-const PUBLIC_API   = ['/api/health', '/api/webhook']
+const PUBLIC_PATHS = ['/', '/login', '/api/auth', '/api/webhook', '/api/health', '/_next', '/static', '/favicon.ico']
+const PUBLIC_API   = ['/api/health', '/api/webhook', '/api/auth']
 
 function isPublicPath(pathname: string): boolean {
   return (
