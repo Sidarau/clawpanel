@@ -1,2 +1,21 @@
-.vercel
+# dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# next.js
+.next/
+out/
+
+# build
+dist/
+
+# env
 .env*.local
+.env.prod
+
+# vercel
+.vercel
+
+# misc
+*.tsbuildinfo

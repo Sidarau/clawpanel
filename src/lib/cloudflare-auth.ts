@@ -10,7 +10,7 @@ export interface CFUser {
 }
 
 // Hardcoded values from Alex's setup
-const CF_TEAM_DOMAIN = 'zeuglab.cloudflareaccess.com';
+const CF_TEAM_DOMAIN = process.env.CF_TEAM_DOMAIN || 'clawpanel.cloudflareaccess.com';
 
 // Cache for JWKS
 let jwksCache: ReturnType<typeof createRemoteJWKSet> | null = null;
@@ -53,9 +53,16 @@ export async function getCurrentUser(): Promise<CFUser> {
     const headersList = await headers();
     const cookieStore = await cookies();
     
+    console.log('[getCurrentUser] Headers:', {
+      'x-user-email': headersList.get('x-user-email'),
+      'cf-access-jwt-assertion': headersList.get('cf-access-jwt-assertion')?.slice(0, 20) + '...',
+    });
+    console.log('[getCurrentUser] Cookies:', cookieStore.getAll().map(c => c.name));
+    
     // First, trust middleware-injected local headers (for Tailscale/private IP bypass)
     const localEmail = headersList.get('x-user-email');
     if (localEmail) {
+      console.log('[getCurrentUser] Using local email from middleware:', localEmail);
       return {
         email: localEmail,
         name: headersList.get('x-user-name') || localEmail.split('@')[0],
