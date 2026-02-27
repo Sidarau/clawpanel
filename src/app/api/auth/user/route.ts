@@ -1,21 +1,35 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getCurrentUser } from '@/lib/cloudflare-auth';
+import { getAuth } from 'firebase-admin/auth';
+import { initializeApp, getApps } from 'firebase-admin/app';
 
-// Force dynamic rendering since we use headers()
+const app = getApps().length === 0
+  ? initializeApp({ projectId: 'clawpanel-50d0f' })
+  : getApps()[0];
+
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
+  const defaultUser = { isAuthenticated: false, email: '', name: '', sub: '', groups: [] };
+
   try {
-    const user = await getCurrentUser();
-    return NextResponse.json({ user });
-  } catch (error: any) {
-    console.error('[API /auth/user] Error:', error);
-    return NextResponse.json(
-      { 
-        error: error?.message || 'Unknown error',
-        user: { isAuthenticated: false, email: '', name: '', sub: '', groups: [] }
+    const sessionCookie = request.cookies.get('__session')?.value;
+
+    if (!sessionCookie) {
+      return NextResponse.json({ user: defaultUser });
+    }
+
+    const decoded = await getAuth(app).verifySessionCookie(sessionCookie, true);
+
+    return NextResponse.json({
+      user: {
+        isAuthenticated: true,
+        email: decoded.email || '',
+        name: decoded.name || decoded.email?.split('@')[0] || '',
+        sub: decoded.uid,
+        groups: [],
       },
-      { status: 200 }
-    );
+    });
+  } catch (error) {
+    return NextResponse.json({ user: defaultUser });
   }
 }

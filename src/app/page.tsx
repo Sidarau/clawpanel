@@ -545,6 +545,7 @@ export default function Page() {
 
 // ─── Home ───────────────────────────────────────────────
 function HomePage({ onNavigate }: { onNavigate: (s: Screen) => void }) {
+  const { user: authUser } = useAuth()
   const [gateway, setGateway] = useState<GatewayStatus | null>(null)
   const [cronStats, setCronStats] = useState<{ active: number; total: number } | null>(null)
   const [agentSummary, setAgentSummary] = useState<AgentSummary | null>(null)
@@ -693,6 +694,11 @@ function HomePage({ onNavigate }: { onNavigate: (s: Screen) => void }) {
               </div>
               <span style={{ fontSize: '0.6rem', fontWeight: 600, color: 'var(--accent)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>Live</span>
             </div>
+          )}
+          {authUser.isAuthenticated && (
+            <span style={{ fontSize: '0.6rem', color: '#10b981', marginLeft: 8 }}>
+              {authUser.email}
+            </span>
           )}
         </div>
         <button onClick={fetchAll} style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', padding: 6, borderRadius: 6 }}>

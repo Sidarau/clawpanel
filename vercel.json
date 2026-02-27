@@ -1,0 +1,7 @@
+{
+  "env": {
+    "INSTANCE_URL": "http://100.93.146.15:18889",
+    "RELAY_SECRET": "clawpanel-relay-secret-2026",
+    "GATEWAY_WS_URL": "ws://100.93.146.15:18889"
+  }
+}

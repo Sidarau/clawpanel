@@ -50,12 +50,18 @@ export function AuthProvider({ children, initialUser }: AuthProviderProps) {
     }
 
     // Fetch user from API if not provided
-    fetch('/api/auth/user')
-      .then(res => res.json())
+    console.log('[Auth] Fetching user from /api/auth/user...');
+    fetch('/api/auth/user', { credentials: 'include' })
+      .then(res => {
+        console.log('[Auth] Response status:', res.status);
+        return res.json();
+      })
       .then(data => {
+        console.log('[Auth] User data:', data);
         setUser(data.user || defaultUser);
       })
-      .catch(() => {
+      .catch((err) => {
+        console.error('[Auth] Error:', err);
         setUser(defaultUser);
       })
       .finally(() => {
