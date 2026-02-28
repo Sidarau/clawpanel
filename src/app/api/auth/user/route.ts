@@ -1,15 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getCurrentUser } from '@/lib/cloudflare-auth';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
+  const defaultUser = { isAuthenticated: false, email: '', name: '', sub: '', groups: [] };
+
   try {
-    const user = await getCurrentUser();
-    return NextResponse.json({ user });
-  } catch (error: any) {
+    const session = await getServerSession(authOptions);
+
+    if (!session?.user?.email) {
+      return NextResponse.json({ user: defaultUser });
+    }
+
     return NextResponse.json({
-      user: { isAuthenticated: false, email: '', name: '', sub: '', groups: [] }
+      user: {
+        isAuthenticated: true,
+        email: session.user.email,
+        name: session.user.name || session.user.email.split('@')[0],
+        sub: session.user.email,
+        groups: [],
+      },
     });
+  } catch {
+    return NextResponse.json({ user: defaultUser });
   }
 }
