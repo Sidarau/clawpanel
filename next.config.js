@@ -5,6 +5,9 @@ const nextConfig = {
       bodySizeLimit: '2mb',
     },
   },
+  turbopack: {
+    root: __dirname,
+  },
   env: {
     CF_AUD_TAG: process.env.CF_AUD_TAG,
     CF_POLICY_ID: process.env.CF_POLICY_ID,
