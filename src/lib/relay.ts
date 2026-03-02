@@ -1,27 +1,22 @@
 /**
  * Relay – proxy layer for remote ClawPanel deployments.
  *
- * When INSTANCE_URL is set (e.g. on Vercel), API requests get proxied
- * to the user's OpenClaw Lightsail instance.  On the instance itself
- * INSTANCE_URL is empty → no proxying, routes hit the filesystem directly.
+ * Multi-tenant: each user has their own OpenClaw instance stored in KV.
+ * Middleware looks up the user's instance config and proxies API requests to it.
  *
- * Auth: a shared RELAY_SECRET header proves the caller is the user's
- * own deployment.  The remote side validates it in middleware and trusts
- * the forwarded user identity headers.
+ * On the instance itself (local ClawPanel dev server), relay secret validates
+ * incoming requests from the Vercel deployment.
  */
 
 // ── Config ──────────────────────────────────────────────
 
-/** URL of the OpenClaw instance (set on remote deployments, empty on instance). */
+/** Legacy single-tenant override — only used if set. */
 export const INSTANCE_URL = (process.env.INSTANCE_URL || '').replace(/\/+$/, '')
 
-/** Shared secret between the remote deployment and the instance. */
+/** Legacy relay secret — only used for local instance validation. */
 export const RELAY_SECRET = process.env.RELAY_SECRET || ''
 
-/** True when running on a remote deployment that needs proxying. */
-export const isRelayMode = !!INSTANCE_URL
-
-/** True on the actual OpenClaw host (no INSTANCE_URL). */
+/** True on the actual OpenClaw host (no INSTANCE_URL means we're the instance). */
 export const isLocalInstance = !INSTANCE_URL
 
 // ── Relay header names ──────────────────────────────────
@@ -33,19 +28,25 @@ export const HDR_FWD_SUB      = 'x-forwarded-user-sub'
 
 // ── Paths ───────────────────────────────────────────────
 
-/** Paths served locally even on remote deployments (auth, health, relay meta). */
-const LOCAL_ONLY_PREFIXES = [
+/** API paths that are always served locally (never proxied). */
+export const LOCAL_ONLY_PREFIXES = [
   '/api/auth',
   '/api/health',
   '/api/webhook',
   '/api/relay',
+  '/api/instance',  // instance config CRUD lives on Vercel, not instance
 ]
 
-/** Should this API path be proxied when in relay mode? */
-export function shouldProxy(pathname: string): boolean {
-  if (!isRelayMode) return false
+/** Should this path be proxied to the user's instance? */
+export function shouldProxyPath(pathname: string): boolean {
   if (!pathname.startsWith('/api/')) return false
   return !LOCAL_ONLY_PREFIXES.some(p => pathname === p || pathname.startsWith(p + '/'))
+}
+
+/** Legacy: should proxy based on env var. */
+export function shouldProxy(pathname: string): boolean {
+  if (!INSTANCE_URL) return false
+  return shouldProxyPath(pathname)
 }
 
 // ── Proxy helper ────────────────────────────────────────
@@ -53,31 +54,45 @@ export function shouldProxy(pathname: string): boolean {
 export interface ProxyOpts {
   /** Original incoming request. */
   request: Request
-  /** Authenticated user email (from CF JWT or local bypass). */
+  /** Authenticated user email. */
   userEmail?: string
   /** Authenticated user display name. */
   userName?: string
   /** Authenticated user sub. */
   userSub?: string
+  /** Per-user instance URL (overrides INSTANCE_URL env var). */
+  instanceUrl?: string
+  /** Per-user relay secret (overrides RELAY_SECRET env var). */
+  relaySecret?: string
 }
 
 /**
- * Proxy a request to the OpenClaw instance and return the response.
- * Runs in edge middleware context (Web Fetch API only).
+ * Proxy a request to the user's OpenClaw instance.
+ * Edge-runtime compatible (Web Fetch API only).
  */
 export async function proxyToInstance(opts: ProxyOpts): Promise<Response> {
-  const { request, userEmail, userName, userSub } = opts
+  const {
+    request, userEmail, userName, userSub,
+    instanceUrl: dynInstanceUrl,
+    relaySecret: dynRelaySecret,
+  } = opts
+
+  const baseUrl = (dynInstanceUrl || INSTANCE_URL).replace(/\/+$/, '')
+  const secret = dynRelaySecret || RELAY_SECRET
+
+  if (!baseUrl) {
+    return Response.json({ error: 'No instance configured' }, { status: 503 })
+  }
+
   const url = new URL(request.url)
-  const target = `${INSTANCE_URL}${url.pathname}${url.search}`
+  const target = `${baseUrl}${url.pathname}${url.search}`
 
   const headers = new Headers()
-  // Relay auth
-  headers.set(HDR_RELAY_SECRET, RELAY_SECRET)
-  // Forwarded identity
+  headers.set(HDR_RELAY_SECRET, secret)
   if (userEmail) headers.set(HDR_FWD_EMAIL, userEmail)
   if (userName)  headers.set(HDR_FWD_NAME, userName)
   if (userSub)   headers.set(HDR_FWD_SUB, userSub)
-  // Content negotiation
+
   const ct = request.headers.get('content-type')
   if (ct) headers.set('content-type', ct)
   const accept = request.headers.get('accept')
@@ -88,19 +103,16 @@ export async function proxyToInstance(opts: ProxyOpts): Promise<Response> {
       method: request.method,
       headers,
       body: ['GET', 'HEAD'].includes(request.method) ? undefined : request.body,
-      // @ts-expect-error — Cloudflare/Vercel edge supports duplex
+      // @ts-expect-error — edge runtime supports duplex
       duplex: 'half',
     })
 
-    // Clone essential response headers, skip hop-by-hop
     const resHeaders = new Headers()
-    const skipHeaders = new Set([
+    const skip = new Set([
       'transfer-encoding', 'connection', 'keep-alive',
       'proxy-authenticate', 'proxy-authorization', 'te', 'trailers', 'upgrade',
     ])
-    res.headers.forEach((v, k) => {
-      if (!skipHeaders.has(k.toLowerCase())) resHeaders.set(k, v)
-    })
+    res.headers.forEach((v, k) => { if (!skip.has(k.toLowerCase())) resHeaders.set(k, v) })
 
     return new Response(res.body, {
       status: res.status,
@@ -115,20 +127,22 @@ export async function proxyToInstance(opts: ProxyOpts): Promise<Response> {
   }
 }
 
-// ── Relay auth validation (on instance side) ────────────
+// ── Instance-side validation ─────────────────────────────
 
 /**
- * Validate an incoming relay request.
- * Returns the forwarded user identity if valid, null otherwise.
+ * Validate an incoming relay request on the local instance.
+ * Accepts any relay secret that matches any registered user's secret,
+ * or falls back to the env var RELAY_SECRET.
  */
-export function validateRelayRequest(headers: Headers): {
-  email: string
-  name: string
-  sub: string
-} | null {
-  if (!RELAY_SECRET) return null
-  const secret = headers.get(HDR_RELAY_SECRET)
-  if (!secret || secret !== RELAY_SECRET) return null
+export function validateRelayRequest(
+  headers: Headers,
+  allowedSecret?: string,
+): { email: string; name: string; sub: string } | null {
+  const incomingSecret = headers.get(HDR_RELAY_SECRET)
+  if (!incomingSecret) return null
+
+  const validSecret = allowedSecret || RELAY_SECRET
+  if (!validSecret || incomingSecret !== validSecret) return null
 
   const email = headers.get(HDR_FWD_EMAIL) || ''
   if (!email) return null

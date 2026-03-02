@@ -15,6 +15,9 @@ const nextConfig = {
     INSTANCE_URL: process.env.INSTANCE_URL,
     RELAY_SECRET: process.env.RELAY_SECRET,
     GATEWAY_WS_URL: process.env.GATEWAY_WS_URL,
+    KV_REST_API_URL: process.env.KV_REST_API_URL,
+    KV_REST_API_TOKEN: process.env.KV_REST_API_TOKEN,
+    ALLOWED_EMAILS: process.env.ALLOWED_EMAILS,
   },
 }
 

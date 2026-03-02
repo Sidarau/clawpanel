@@ -1,7 +1,13 @@
 import { NextAuthOptions } from 'next-auth';
 import GoogleProvider from 'next-auth/providers/google';
 
-const ALLOWED_EMAIL = 'alexsidarau@gmail.com';
+/** Comma-separated list of allowed emails. Falls back to legacy single-email env var. */
+const allowedEmails = new Set(
+  (process.env.ALLOWED_EMAILS || process.env.ALLOWED_EMAIL || '')
+    .split(',')
+    .map(e => e.trim().toLowerCase())
+    .filter(Boolean)
+);
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -12,9 +18,21 @@ export const authOptions: NextAuthOptions = {
   ],
   callbacks: {
     async signIn({ user }) {
-      return user.email === ALLOWED_EMAIL;
+      if (!user.email) return false;
+      return allowedEmails.has(user.email.toLowerCase());
     },
-    async session({ session }) {
+    async jwt({ token, account, profile }) {
+      // Persist Google sub in the JWT so we can use it as a stable user key
+      if (account?.providerAccountId) {
+        token.sub = account.providerAccountId;
+      }
+      return token;
+    },
+    async session({ session, token }) {
+      // Expose sub in session for client-side use
+      if (session.user && token.sub) {
+        (session.user as typeof session.user & { sub: string }).sub = token.sub;
+      }
       return session;
     },
   },
